@@ -14,7 +14,7 @@ const rooms = new Map();
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Crunchy Party relay is running (v2).\n');
+  res.end('Crunchy Party relay is running (v3).\n');
 });
 
 server.on('upgrade', (req, socket) => {
@@ -146,6 +146,14 @@ function handleMessage(client, text) {
     client.role = msg.role === 'nav' ? 'nav' : 'player';
     let room = rooms.get(id);
     if (!room) { room = { id, clients: new Set(), state: null, episode: null }; rooms.set(id, room); }
+    // A refreshed tab rejoins with the same id: drop its old, possibly half-dead connection.
+    if (msg.id) {
+      client.id = String(msg.id).slice(0, 64);
+      for (const c of room.clients) {
+        // Removed directly (not via leave) so the room and its state survive.
+        if (c.id === client.id && c.role === client.role) { room.clients.delete(c); c.room = null; c.socket.destroy(); }
+      }
+    }
     room.clients.add(client);
     client.room = id;
     if (client.role === 'nav') {
