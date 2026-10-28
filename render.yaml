@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: crunchy-party
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
