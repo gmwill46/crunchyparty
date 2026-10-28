@@ -14,7 +14,7 @@ const rooms = new Map();
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Crunchy Party relay is running.\n');
+  res.end('Crunchy Party relay is running (v2).\n');
 });
 
 server.on('upgrade', (req, socket) => {
@@ -32,7 +32,8 @@ server.on('upgrade', (req, socket) => {
   );
   socket.setNoDelay(true);
 
-  const client = { socket, room: null, name: 'Someone', role: 'player' };
+  const client = { socket, room: null, name: 'Someone', role: 'player', alive: true };
+  clients.add(client);
   let buf = Buffer.alloc(0);
 
   socket.on('data', (chunk) => {
@@ -41,14 +42,26 @@ server.on('upgrade', (req, socket) => {
     while ((frame = readFrame(buf))) {
       if (frame.error) { socket.destroy(); return; }
       buf = buf.subarray(frame.consumed);
-      if (frame.opcode === 0x8) { sendFrame(socket, 0x8, Buffer.alloc(0)); socket.end(); return; }
+      client.alive = true;
+      if (frame.opcode === 0x8) { leave(client); sendFrame(socket, 0x8, Buffer.alloc(0)); socket.end(); return; }
       if (frame.opcode === 0x9) { sendFrame(socket, 0xA, frame.payload); continue; }
       if (frame.opcode === 0x1) handleMessage(client, frame.payload.toString('utf8'));
     }
   });
-  socket.on('close', () => leave(client));
-  socket.on('error', () => leave(client));
+  socket.on('close', () => { leave(client); clients.delete(client); });
+  socket.on('error', () => { leave(client); clients.delete(client); });
 });
+
+// Ping everyone every 30s; drop connections that didn't answer the last ping.
+// Also keeps hosting proxies from closing idle connections.
+const clients = new Set();
+setInterval(() => {
+  for (const c of clients) {
+    if (!c.alive) { leave(c); clients.delete(c); c.socket.destroy(); continue; }
+    c.alive = false;
+    sendFrame(c.socket, 0x9, Buffer.alloc(0));
+  }
+}, 30000);
 
 function readFrame(buf) {
   if (buf.length < 2) return null;
